@@ -1,0 +1,85 @@
+name: AutoPost
+
+# 英語圏ゴールデンタイムに合わせる:
+#   1st: US 東海岸の朝(9am EDT = 13:00 UTC = JST 22:00 起動→ ±4h ランダム)
+#   2nd: 欧州の朝 / US 西海岸の夜(8am CET = 07:00 UTC = JST 16:00 起動 → ±4h ランダム)
+# スクリプト側でランダムスリープするので、実投稿は:
+#   JST 22:00〜02:00 (≒ US Eastern morning / midday)
+#   JST 16:00〜20:00 (≒ Europe morning / US Pacific late evening)
+on:
+  schedule:
+    - cron: "0 13 * * *"   # UTC 13:00 = JST 22:00
+    - cron: "0  7 * * *"   # UTC 07:00 = JST 16:00
+  workflow_dispatch:
+    inputs:
+      dry:
+        description: "テスト実行(X投稿なし)"
+        required: false
+        default: "false"
+      window:
+        description: "ランダムスリープの上限(分)"
+        required: false
+        default: "0"
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    # sleep 上限 (300分) + 処理時間 + 余裕
+    timeout-minutes: 330
+    concurrency:
+      group: autopost-x
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # posts.db を run 間で保持(重複投稿防止)
+      - name: Restore posts DB
+        uses: actions/cache@v4
+        with:
+          path: posts.db
+          key: posts-db-${{ github.run_id }}
+          restore-keys: |
+            posts-db-
+
+      - name: Install deps
+        run: pip install -r requirements.txt
+
+      - name: Decide window (minutes)
+        id: win
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "window=${{ github.event.inputs.window }}" >> $GITHUB_OUTPUT
+            echo "dry=${{ github.event.inputs.dry }}" >> $GITHUB_OUTPUT
+          else
+            # スケジュール起動: 両便とも 4h 窓(計 8h にポストが散る)
+            echo "window=240" >> $GITHUB_OUTPUT
+            echo "dry=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post
+        env:
+          GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
+          X_API_KEY:       ${{ secrets.X_API_KEY }}
+          X_API_SECRET:    ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN:  ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          if [ "${{ steps.win.outputs.dry }}" = "true" ]; then
+            python auto_post.py ${{ steps.win.outputs.window }} --dry
+          else
+            python auto_post.py ${{ steps.win.outputs.window }}
+          fi
+
+      # posts.db をアーティファクトとして保存(念のため・可視化用)
+      - name: Save posts DB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: posts-db-${{ github.run_number }}
+          path: posts.db
+          retention-days: 30
