@@ -246,10 +246,29 @@ def make_tweet(g_client: "genai.Client", genre: str, entry) -> str:
     )
     text = (resp.text or "").strip()
 
+    # --- URL guard: URLが本文に無い場合は必ず末尾に追加 ---
+    # (Geminiが3行目をサボるケースのフォールバック。URLがない投稿は
+    #  クリックスルー価値がゼロになるのでこれは致命的)
+    if entry.link not in text:
+        log.warning("URL missing from generated tweet, appending.")
+        # URLを入れるスペースを確保 (t.co短縮で23字扱いだが余裕を見て原URL長+1)
+        reserve = len(entry.link) + 1  # newline
+        limit = 280 - reserve
+        if len(text) > limit:
+            text = text[:max(0, limit - 3)].rstrip() + "..."
+        text = text.rstrip() + "\n" + entry.link
+
     # 280字を超えていたら末尾URL以外を圧縮(URLは絶対残す)
     if len(text) > 280:
-        log.warning("Tweet too long (%d), trimming.", len(text))
-        text = text[:277] + "..."
+        # URLがある場合、URL部分を保持して前半を圧縮
+        if entry.link in text:
+            pre, url = text.rsplit(entry.link, 1)
+            keep = 280 - len(entry.link) - 1  # 1 for separator
+            pre = pre[:max(0, keep - 3)].rstrip() + "..."
+            text = pre + "\n" + entry.link
+        else:
+            log.warning("Tweet too long (%d), trimming.", len(text))
+            text = text[:277] + "..."
     return text
 
 
