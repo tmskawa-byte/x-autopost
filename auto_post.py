@@ -242,7 +242,7 @@ def make_tweet(g_client: "genai.Client", genre: str, entry) -> str:
     resp = g_client.models.generate_content(
         model=GEMINI_MODEL,
         contents=prompt,
-        config={"temperature": 0.7, "max_output_tokens": 500},
+        config={"temperature": 0.85, "max_output_tokens": 500},
     )
     text = (resp.text or "").strip()
 
