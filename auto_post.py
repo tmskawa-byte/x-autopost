@@ -93,37 +93,60 @@ GEMINI_MODEL = "gemini-2.5-flash"  # 高速・激安・十分賢い
 
 # Gemini への指示プロンプト (English tweets for a global audience)
 PROMPT_TEMPLATE = """You write a single X (Twitter) post in ENGLISH, for a global
-audience interested in tech, finance, and natural science.
+audience interested in tech, finance, and natural science. Add value beyond a
+summary — make the reader think.
 
 # Output format (strict, 3 lines, <=260 chars total so URL fits)
-Line 1: The original article title (verbatim, OR a crisper rewrite <= 90 chars
-        if the original is clunky). No emojis. No quotes.
-Line 2: -> one-line take (<= 80 chars). A sharp, non-generic angle:
-        why this matters, a contrarian read, a question, or an implication.
-        Do NOT summarize the article — add something.
-Line 3: 2 hashtags (space-separated, English, lowercase camelCase allowed),
-        then the URL verbatim.
+Line 1: Article title (verbatim, OR a crisper rewrite <= 90 chars if clunky).
+        No emojis. No quotes.
+        Line 2: -> one-line ANGLE (<= 100 chars). REQUIRED: pick ONE of these styles
+                randomly per post:
+                        (a) Question — open-ended, provoking reader thought
+                                (b) Prediction — bold call about what happens next / in 12 months
+                                        (c) Contrarian — push back on the obvious read
+                                                (d) JP angle — what this means for Japanese companies, regulators,
+                                                            consumers, or the Sakana/SoftBank/Toyota ecosystem
+                                                                    Do NOT just summarize. Add a perspective.
+                                                                    Line 3: 2 hashtags (space-separated, English, lowercase camelCase allowed),
+                                                                            then the URL verbatim.
 
-# Good example (genre: finance)
-BoJ at impasse as yen breaches 160
--> Verbal intervention alone won't hold this line much longer.
-#forex #BoJ https://example.com/yen
+                                                                            # Good examples (one per style — IMITATE the depth, not the wording)
 
-# Bad examples (do NOT do)
-- Translating the title into another language
-- Generic takes like "Interesting read!" / "Worth a look"
-- Bullet points, numbered lists, or markdown
-- More than 3 lines
-- Preamble like "Here is the tweet:"
+                                                                            [Question]
+                                                                            US Treasury yields hit 5%
+                                                                            -> Will retail finally choose bonds over stocks? What's your call?
+                                                                            #bonds #yields https://example.com/yields
 
-# Input
-genre: {genre}
-title: {title}
-summary: {summary}
-url: {url}
+                                                                            [Prediction]
+                                                                            Apple unveils new AI silicon
+                                                                            -> By 2027 every premium phone runs LLMs on-device. Cloud AI loses the consumer race.
+                                                                            #apple #ai https://example.com/apple
 
-Output the 3-line tweet only. No other text.
-""".strip()
+                                                                            [Contrarian]
+                                                                            "AI is replacing programmers" survey
+                                                                            -> Devs aren't vanishing — they're becoming product managers. "What to build" demand rises.
+                                                                            #ai #devs https://example.com/survey
+
+                                                                            [JP angle]
+                                                                            Mistral raises $640M
+                                                                            -> Sakana AI is Japan's only realistic answer. Will METI push tax breaks like France?
+                                                                            #mistral #japanai https://example.com/mistral
+
+                                                                            # Bad (do NOT)
+                                                                            - Generic takes ("Interesting read!", "Worth a look")
+                                                                            - Just summarizing or translating
+                                                                            - Bullet points or markdown
+                                                                            - More than 3 lines
+                                                                            - Preamble like "Here is the tweet:"
+
+                                                                            # Input
+                                                                            genre: {genre}
+                                                                            title: {title}
+                                                                            summary: {summary}
+                                                                            url: {url}
+
+                                                                            Output the 3-line tweet only. No other text.
+                                                                            """.strip()
 
 # ============================================================
 # ロギング
