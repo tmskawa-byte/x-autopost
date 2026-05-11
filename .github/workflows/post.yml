@@ -1,31 +1,36 @@
 name: AutoPost
 
-# 英語圏ゴールデンタイムに合わせる:
-#   1st: US 東海岸の朝(9am EDT = 13:00 UTC = JST 22:00 起動→ ±4h ランダム)
-#   2nd: 欧州の朝 / US 西海岸の夜(8am CET = 07:00 UTC = JST 16:00 起動 → ±4h ランダム)
-# スクリプト側でランダムスリープするので、実投稿は:
-#   JST 22:00〜02:00 (≒ US Eastern morning / midday)
-#   JST 16:00〜20:00 (≒ Europe morning / US Pacific late evening)
+# 4 スロット方式 (JST):
+#   slot 0: 07:00 JST = 22:00 UTC (前日)
+#   slot 1: 11:30 JST = 02:30 UTC
+#   slot 2: 16:00 JST = 07:00 UTC
+#   slot 3: 22:30 JST = 13:30 UTC
+# 全 4 スロットで cron トリガーするが、Python 側で日付ハッシュにより
+# 4 スロットから 2 スロットを deterministic にサンプルする。
+# 当該スロットが選ばれていなければ即 exit するため、ランナー時間は
+# (スキップ時) 数十秒 / (採用時) ~10 分以内に収まる。
 on:
   schedule:
-    - cron: "0 13 * * *"   # UTC 13:00 = JST 22:00
+    - cron: "0 22 * * *"   # UTC 22:00 = JST 07:00 (翌日)
+    - cron: "30 2 * * *"   # UTC 02:30 = JST 11:30
     - cron: "0  7 * * *"   # UTC 07:00 = JST 16:00
+    - cron: "30 13 * * *"  # UTC 13:30 = JST 22:30
   workflow_dispatch:
     inputs:
       dry:
         description: "テスト実行(X投稿なし)"
         required: false
         default: "false"
-      window:
-        description: "ランダムスリープの上限(分)"
+      force:
+        description: "スロット選択を無視して強制実行(手動テスト用)"
         required: false
-        default: "0"
+        default: "true"
 
 jobs:
   post:
     runs-on: ubuntu-latest
-    # sleep 上限 (300分) + 処理時間 + 余裕
-    timeout-minutes: 330
+    # スキップ時は数十秒、採用時もジッター 0〜10 分 + 処理時間で完結
+    timeout-minutes: 20
     concurrency:
       group: autopost-x
       cancel-in-progress: false
@@ -49,18 +54,6 @@ jobs:
       - name: Install deps
         run: pip install -r requirements.txt
 
-      - name: Decide window (minutes)
-        id: win
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "window=${{ github.event.inputs.window }}" >> $GITHUB_OUTPUT
-            echo "dry=${{ github.event.inputs.dry }}" >> $GITHUB_OUTPUT
-          else
-            # スケジュール起動: 両便とも 4h 窓(計 8h にポストが散る)
-            echo "window=240" >> $GITHUB_OUTPUT
-            echo "dry=false" >> $GITHUB_OUTPUT
-          fi
-
       - name: Post
         env:
           GEMINI_API_KEY:  ${{ secrets.GEMINI_API_KEY }}
@@ -69,11 +62,16 @@ jobs:
           X_ACCESS_TOKEN:  ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
         run: |
-          if [ "${{ steps.win.outputs.dry }}" = "true" ]; then
-            python auto_post.py ${{ steps.win.outputs.window }} --dry
-          else
-            python auto_post.py ${{ steps.win.outputs.window }}
+          ARGS=""
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if [ "${{ github.event.inputs.force }}" = "true" ]; then
+              ARGS="$ARGS --force"
+            fi
+            if [ "${{ github.event.inputs.dry }}" = "true" ]; then
+              ARGS="$ARGS --dry"
+            fi
           fi
+          python auto_post.py $ARGS
 
       # posts.db をアーティファクトとして保存(念のため・可視化用)
       - name: Save posts DB

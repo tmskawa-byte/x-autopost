@@ -311,19 +311,94 @@ def post_to_x(text: str) -> dict:
 
 
 # ============================================================
+# 投稿スロット (4 スロット方式)
+# ============================================================
+#
+# JST 基準で 4 つの候補スロットを用意し、日付ハッシュにより 4 つから
+# SLOTS_PER_DAY 個を deterministic にサンプルする。GitHub Actions の
+# cron は 4 スロット全てでトリガーするが、Python 側で「当該スロットが
+# 今日選ばれていない」なら即 exit する設計。
+POST_SLOTS_UTC: list[tuple[int, int]] = [
+    (22, 0),   # JST 07:00 (= UTC 22:00 前日)
+    (2, 30),   # JST 11:30
+    (7, 0),    # JST 16:00
+    (13, 30),  # JST 22:30
+]
+SLOTS_PER_DAY = 2             # 1 日に投稿するスロット数
+SLOT_TRIGGER_WINDOW_MIN = 30  # cron 起動から何分以内ならそのスロット扱いか
+POST_JITTER_MAX_MIN = 10      # 投稿前に挟む小ランダムスリープの上限(分)
+
+JST = timezone(timedelta(hours=9))
+
+
+def current_slot_index(now_utc: datetime) -> Optional[int]:
+    """now_utc 時点で最も直近に発火した POST_SLOTS_UTC のインデックスを返す。
+    どのスロットの SLOT_TRIGGER_WINDOW_MIN 以内でもなければ None。"""
+    best_idx: Optional[int] = None
+    best_diff: Optional[float] = None
+    for i, (h, m) in enumerate(POST_SLOTS_UTC):
+        scheduled_today = now_utc.replace(hour=h, minute=m, second=0, microsecond=0)
+        # 日付境界対策で前日/翌日候補も含めて評価
+        for candidate in (scheduled_today - timedelta(days=1),
+                          scheduled_today,
+                          scheduled_today + timedelta(days=1)):
+            diff_sec = (now_utc - candidate).total_seconds()
+            if 0 <= diff_sec <= SLOT_TRIGGER_WINDOW_MIN * 60:
+                if best_diff is None or diff_sec < best_diff:
+                    best_idx = i
+                    best_diff = diff_sec
+    return best_idx
+
+
+def selected_slots_for_jst_date(jst_date_iso: str) -> list[int]:
+    """JST 日付文字列 (YYYY-MM-DD) をシードに 4 スロットから SLOTS_PER_DAY 個を
+    deterministic にサンプルし、昇順で返す。"""
+    digest = hashlib.sha256(jst_date_iso.encode("utf-8")).digest()
+    seed = int.from_bytes(digest[:8], "big")
+    rng = random.Random(seed)
+    indices = list(range(len(POST_SLOTS_UTC)))
+    rng.shuffle(indices)
+    return sorted(indices[:SLOTS_PER_DAY])
+
+
+# ============================================================
 # メイン
 # ============================================================
 
 def main() -> int:
     args = sys.argv[1:]
     dry_run = "--dry" in args
-    args = [a for a in args if a != "--dry"]
-    sleep_window_min = int(args[0]) if args else 240
+    force = "--force" in args
+    # 後方互換: 旧 CLI(window 分の数値引数) が渡されても受け流す
+    _ignored = [a for a in args if a not in ("--dry", "--force") and a.isdigit()]
 
-    # 完全ランダムスリープ(0 〜 sleep_window_min 分)
-    delay_min = random.randint(0, max(0, sleep_window_min))
-    log.info("Sleeping %d minutes before posting (window=%d)", delay_min, sleep_window_min)
-    time.sleep(delay_min * 60)
+    if not force:
+        now_utc = datetime.now(timezone.utc)
+        slot_idx = current_slot_index(now_utc)
+        if slot_idx is None:
+            log.warning(
+                "No active slot for current time (UTC=%s). Exiting without posting.",
+                now_utc.isoformat(),
+            )
+            return 0
+        jst_today = now_utc.astimezone(JST).date().isoformat()
+        selected = selected_slots_for_jst_date(jst_today)
+        log.info(
+            "JST=%s, current slot=%d, selected slots for today=%s",
+            jst_today, slot_idx, selected,
+        )
+        if slot_idx not in selected:
+            log.info("Slot %d not selected for today. Exiting without posting.", slot_idx)
+            return 0
+        # Bot 判定回避用の 0〜POST_JITTER_MAX_MIN 分ジッター
+        jitter_min = random.randint(0, POST_JITTER_MAX_MIN)
+        log.info(
+            "Slot %d selected. Sleeping %d min jitter before posting.",
+            slot_idx, jitter_min,
+        )
+        time.sleep(jitter_min * 60)
+    else:
+        log.info("--force given: skipping slot selection.")
 
     conn = db_open()
 
