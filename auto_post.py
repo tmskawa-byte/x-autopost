@@ -241,6 +241,34 @@ def pick_candidate(conn: sqlite3.Connection, genre: str):
 # Gemini で整形
 # ============================================================
 
+def _call_gemini(g_client: "genai.Client", prompt: str) -> str:
+    resp = g_client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
+        config={
+            "temperature": 0.85,
+            "max_output_tokens": 500,
+            "thinking_config": {"thinking_budget": 0},
+        },
+    )
+    return (resp.text or "").strip()
+
+
+def _validate_tweet(text: str, url: str) -> Optional[str]:
+    """戻り値: 不合格理由(文字列)。合格時は None。"""
+    lines = [ln.rstrip() for ln in text.splitlines() if ln.strip()]
+    if len(lines) != 3:
+        return f"line count != 3 (got {len(lines)})"
+    if not lines[1].lstrip().startswith("->"):
+        return "line 2 does not start with '->'"
+    hashtag_count = sum(1 for tok in lines[2].split() if tok.startswith("#"))
+    if hashtag_count < 2:
+        return f"line 3 has < 2 hashtags (got {hashtag_count})"
+    if url not in lines[2]:
+        return "line 3 missing URL"
+    return None
+
+
 def make_tweet(g_client: "genai.Client", genre: str, entry) -> str:
     summary = (
         entry.get("summary")
@@ -248,7 +276,7 @@ def make_tweet(g_client: "genai.Client", genre: str, entry) -> str:
         or entry.get("subtitle")
         or ""
     )
-    # HTMLタグ除去のために単純な置換(完全ではないが十分)
+    # HTMLタグ除去のための単純な置換(完全ではないが十分)
     summary = (
         summary.replace("<p>", " ").replace("</p>", " ")
         .replace("<br>", " ").replace("<br/>", " ").replace("<br />", " ")
@@ -262,12 +290,11 @@ def make_tweet(g_client: "genai.Client", genre: str, entry) -> str:
         url=entry.link,
     )
 
-    resp = g_client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-        config={"temperature": 0.85, "max_output_tokens": 500},
-    )
-    text = (resp.text or "").strip()
+    text = _call_gemini(g_client, prompt)
+    reason = _validate_tweet(text, entry.link)
+    if reason is not None:
+        log.warning("Tweet format validation failed: %s. Retrying once.", reason)
+        text = _call_gemini(g_client, prompt)
 
     # --- URL guard: URLが本文に無い場合は必ず末尾に追加 ---
     # (Geminiが3行目をサボるケースのフォールバック。URLがない投稿は
