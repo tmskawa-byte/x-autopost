@@ -352,17 +352,19 @@ POST_SLOTS_UTC: list[tuple[int, int]] = [
     (13, 30),  # JST 22:30
 ]
 SLOTS_PER_DAY = 2             # 1 日に投稿するスロット数
-SLOT_TRIGGER_WINDOW_MIN = 30  # cron 起動から何分以内ならそのスロット扱いか
 POST_JITTER_MAX_MIN = 10      # 投稿前に挟む小ランダムスリープの上限(分)
 
 JST = timezone(timedelta(hours=9))
 
 
-def current_slot_index(now_utc: datetime) -> Optional[int]:
-    """now_utc 時点で最も直近に発火した POST_SLOTS_UTC のインデックスを返す。
-    どのスロットの SLOT_TRIGGER_WINDOW_MIN 以内でもなければ None。"""
+def current_slot_index(now_utc: datetime) -> Optional[tuple[int, datetime]]:
+    """now_utc 時点で過去・最直近に発火した POST_SLOTS_UTC のスロット番号と
+    そのスケジュール時刻(UTC) のタプルを返す。
+    GitHub Actions cron の遅延(数時間オーダー)に耐えるため、上限窓を設けず
+    過去で最も近いスロットを常に採用する。"""
     best_idx: Optional[int] = None
     best_diff: Optional[float] = None
+    best_scheduled: Optional[datetime] = None
     for i, (h, m) in enumerate(POST_SLOTS_UTC):
         scheduled_today = now_utc.replace(hour=h, minute=m, second=0, microsecond=0)
         # 日付境界対策で前日/翌日候補も含めて評価
@@ -370,11 +372,14 @@ def current_slot_index(now_utc: datetime) -> Optional[int]:
                           scheduled_today,
                           scheduled_today + timedelta(days=1)):
             diff_sec = (now_utc - candidate).total_seconds()
-            if 0 <= diff_sec <= SLOT_TRIGGER_WINDOW_MIN * 60:
+            if diff_sec >= 0:
                 if best_diff is None or diff_sec < best_diff:
                     best_idx = i
                     best_diff = diff_sec
-    return best_idx
+                    best_scheduled = candidate
+    if best_idx is None:
+        return None
+    return (best_idx, best_scheduled)
 
 
 def selected_slots_for_jst_date(jst_date_iso: str) -> list[int]:
@@ -401,21 +406,24 @@ def main() -> int:
 
     if not force:
         now_utc = datetime.now(timezone.utc)
-        slot_idx = current_slot_index(now_utc)
-        if slot_idx is None:
+        result = current_slot_index(now_utc)
+        if result is None:
             log.warning(
-                "No active slot for current time (UTC=%s). Exiting without posting.",
+                "No past slot found for current time (UTC=%s). Exiting.",
                 now_utc.isoformat(),
             )
             return 0
-        jst_today = now_utc.astimezone(JST).date().isoformat()
-        selected = selected_slots_for_jst_date(jst_today)
+        slot_idx, slot_scheduled = result
+        # スロットのスケジュール時刻からJST日付を計算(cron遅延でUTC日付が
+        # ずれてもスロット本来のJST日付で評価する)
+        jst_slot_date = slot_scheduled.astimezone(JST).date().isoformat()
+        selected = selected_slots_for_jst_date(jst_slot_date)
         log.info(
-            "JST=%s, current slot=%d, selected slots for today=%s",
-            jst_today, slot_idx, selected,
+            "Slot %d (scheduled UTC=%s, JST date=%s), selected slots for day=%s",
+            slot_idx, slot_scheduled.isoformat(), jst_slot_date, selected,
         )
         if slot_idx not in selected:
-            log.info("Slot %d not selected for today. Exiting without posting.", slot_idx)
+            log.info("Slot %d not selected for JST %s. Exiting without posting.", slot_idx, jst_slot_date)
             return 0
         # Bot 判定回避用の 0〜POST_JITTER_MAX_MIN 分ジッター
         jitter_min = random.randint(0, POST_JITTER_MAX_MIN)
