@@ -91,62 +91,74 @@ MAX_AGE_HOURS = 48
 DB_PATH = os.environ.get("POSTS_DB_PATH", "posts.db")
 GEMINI_MODEL = "gemini-2.5-flash"  # 高速・激安・十分賢い
 
-# Gemini への指示プロンプト (English tweets for a global audience)
-PROMPT_TEMPLATE = """You write a single X (Twitter) post in ENGLISH, for a global
-audience interested in tech, finance, and natural science. Add value beyond a
-summary — make the reader think.
+# Gemini への指示プロンプト (日本語ツイート、丁寧カジュアル)
+PROMPT_TEMPLATE = """あなたは X (Twitter) に1本の投稿を**日本語**で書きます。読者は AI / 金融 /
+自然科学 に関心のある日本人で、リテラシーは中以上です。単なる要約ではなく、読者が
+「なるほど」「面白いですね」と思える視点を1つ加えてください。
 
-# Output format (strict, 3 lines, <=260 chars total so URL fits)
-Line 1: Article title (verbatim, OR a crisper rewrite <= 90 chars if clunky).
-        No emojis. No quotes.
-        Line 2: -> one-line ANGLE (<= 100 chars). REQUIRED: pick ONE of these styles
-                randomly per post:
-                        (a) Question — open-ended, provoking reader thought
-                                (b) Prediction — bold call about what happens next / in 12 months
-                                        (c) Contrarian — push back on the obvious read
-                                                (d) JP angle — what this means for Japanese companies, regulators,
-                                                            consumers, or the Sakana/SoftBank/Toyota ecosystem
-                                                                    Do NOT just summarize. Add a perspective.
-                                                                    Line 3: 2 hashtags (space-separated, English, lowercase camelCase allowed),
-                                                                            then the URL verbatim.
+## 言葉遣い・トーン
+- 「ですます」基調の丁寧カジュアル
+- 親しみやすさをキープし、過度に硬くしない / 過度に砕けない
+- 自然な締めの例:「〜だと思います」「面白いですね」「気になりますね」「〜ということですね」
+- 専門用語は最低限の補足を入れるか、文脈で読める範囲で使ってOK
+- 「整備士」「整備工場」「車のメンテと同じで」等の自動車整備に関する比喩・職業ネタは**絶対に使わない**
+- 絵文字は使わない / 引用符で全体を囲まない / 「ツイート:」のような前置きを書かない
 
-                                                                            # Good examples (one per style — IMITATE the depth, not the wording)
+## 出力フォーマット(厳守、3行、URLが入るので全体260字以内目安)
+1行目: 元記事のタイトル(原文ママ、または90字以内に意訳して圧縮)。絵文字・引用符なし。
+       元記事が英語の場合は自然な日本語タイトルに訳してください。
+2行目: `->` で始まる独自の視点を1行(100字以内目安)。
+       投稿ごとに以下の(a)〜(d)からランダムに1つ選んでください:
+         (a) 問いかけ ― 読者に考えさせるオープンな質問
+         (b) 予測   ― 「今後12ヶ月で〜になると思います」等、ややハッタリ気味の予想
+         (c) 逆張り ― 多数派の見方に対する反論や見落とされがちな論点
+         (d) 日本視点 ― 日本市場/規制/企業(ソフトバンク、トヨタ、Sakana AI、日銀 等)
+                       や日本の生活者にとっての含意
+       要約や翻訳だけで終わらせない。必ず視点・意見を1つ足す。
+3行目: 日本語ハッシュタグ2個(スペース区切り)、続けて元URLをそのまま貼る。
+       ハッシュタグ例: #AI #人工知能 #LLM #生成AI #機械学習 #半導体
+                      #金融 #投資 #マクロ経済 #米株 #日銀 #為替 #暗号資産
+                      #物理 #宇宙 #量子コンピュータ #生物学 #研究
 
-                                                                            [Question]
-                                                                            US Treasury yields hit 5%
-                                                                            -> Will retail finally choose bonds over stocks? What's your call?
-                                                                            #bonds #yields https://example.com/yields
+## 良い例 (深さを真似てください。文面のコピーはしないこと)
 
-                                                                            [Prediction]
-                                                                            Apple unveils new AI silicon
-                                                                            -> By 2027 every premium phone runs LLMs on-device. Cloud AI loses the consumer race.
-                                                                            #apple #ai https://example.com/apple
+[問いかけ]
+米10年債利回りが5%に到達
+-> 個人投資家はついに株より債券を選ぶようになるんでしょうか。皆さんはどう見ます?
+#金利 #米債 https://example.com/yields
 
-                                                                            [Contrarian]
-                                                                            "AI is replacing programmers" survey
-                                                                            -> Devs aren't vanishing — they're becoming product managers. "What to build" demand rises.
-                                                                            #ai #devs https://example.com/survey
+[予測]
+AppleがオンデバイスAI向け新シリコンを発表
+-> 2027年にはハイエンドスマホはほぼ全部LLMを端末側で動かしている、と予想します。クラウドAIは消費者市場では負けそうですね。
+#Apple #生成AI https://example.com/apple
 
-                                                                            [JP angle]
-                                                                            Mistral raises $640M
-                                                                            -> Sakana AI is Japan's only realistic answer. Will METI push tax breaks like France?
-                                                                            #mistral #japanai https://example.com/mistral
+[逆張り]
+「AIがプログラマを置き換える」アンケート結果
+-> 開発者は消えるんじゃなくて、より「何を作るか」を決める側に寄っていくだけだと思います。むしろ需要は増えそう。
+#AI #エンジニア https://example.com/survey
 
-                                                                            # Bad (do NOT)
-                                                                            - Generic takes ("Interesting read!", "Worth a look")
-                                                                            - Just summarizing or translating
-                                                                            - Bullet points or markdown
-                                                                            - More than 3 lines
-                                                                            - Preamble like "Here is the tweet:"
+[日本視点]
+Mistralが640M調達
+-> 日本ではSakana AIが現実的な対抗馬ですが、フランス並みの税優遇を経産省が打てるかが鍵ですね。
+#Mistral #日本AI https://example.com/mistral
 
-                                                                            # Input
-                                                                            genre: {genre}
-                                                                            title: {title}
-                                                                            summary: {summary}
-                                                                            url: {url}
+## やってはいけないこと
+- 中身のない一般論(「興味深いですね」「必見」だけ等)
+- 単なる要約・翻訳で終わる
+- 箇条書きや Markdown 記法
+- 3行を超える
+- 「以下がツイートです:」のような前置き
+- 自動車整備関連の比喩・職業ネタ
 
-                                                                            Output the 3-line tweet only. No other text.
-                                                                            """.strip()
+## 入力
+genre: {genre}
+title: {title}
+summary: {summary}
+url: {url}
+
+上記の指示に沿って、3行のツイート本文だけを出力してください。それ以外のテキスト
+(説明、前置き、コードブロック等)は一切出力しないでください。
+""".strip()
 
 # ============================================================
 # ロギング
