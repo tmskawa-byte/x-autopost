@@ -1,10 +1,10 @@
 # x-autopost
 
-Gemini で英語ツイートを生成し、X (Twitter) API v2 で1日2回ランダム時刻に投稿する
+Gemini で日本語ツイートを生成し、X (Twitter) API v2 で1日2回ランダム時刻に投稿する
 GitHub Actions ベースの自動投稿システム。
 
 - ジャンル比: **テック 4 / 金融 3 / 自然科学 3**(HN含む複数RSS)
-- 1日 **2投稿**、英語圏ゴールデンタイムにランダム配置
+- 1日 **2投稿**、JST のゴールデンタイム(朝/昼/夕/夜の4スロットから2つ)にランダム配置
 - 48時間以内の記事しか拾わない(週遅れ防止)
 - SQLite で重複ブロック
 - 月コスト目安: **$0.6 ≒ ¥90**(X API ¥90 + Gemini ¥3)
@@ -92,7 +92,7 @@ GitHub の **Actions タブ → AutoPost → Run workflow** で:
 - `dry`: **false**
 - `window`: **0**
 
-を入れて Run。X タイムラインに英語ツイートが1本付けば完了。
+を入れて Run。X タイムラインに日本語ツイートが1本付けば完了。
 以降は cron で **JST 22:00〜02:00** と **JST 16:00〜20:00** の各帯にランダムで投稿されます。
 
 ---
@@ -100,15 +100,15 @@ GitHub の **Actions タブ → AutoPost → Run workflow** で:
 ## 投稿フォーマット(Gemini 出力例)
 
 ```
-BoJ at impasse as yen breaches 160
--> Verbal intervention alone won't hold this line much longer.
-#forex #BoJ https://example.com/yen
+日銀、円安160円突破で手詰まり
+-> 口先介入だけでこのラインを守るのはそろそろ厳しいと思います。
+#為替 #日銀 https://example.com/yen
 ```
 
 3行構成:
-1. 元タイトル(原文 or 90字以内に圧縮)
-2. `->` で始まる短い独自take(80字以内)
-3. ハッシュタグ2個 + URL
+1. 元タイトル(日本語訳 or 90字以内に圧縮)
+2. `->` で始まる短い独自視点 (問いかけ / 予測 / 逆張り / 日本視点 のいずれか)
+3. 日本語ハッシュタグ2個 + URL
 
 ---
 
@@ -142,7 +142,7 @@ BoJ at impasse as yen breaches 160
 | `403 Forbidden` from X | App permission が Read のみ。Read and Write に変更し、Access Token を再発行 |
 | `429 Too Many Requests` | Pay-Per-Use残高切れ。Developer Console でチャージ |
 | ツイートが空 | RSS が全部 48h より古い or 全部投稿済み。`MAX_AGE_HOURS` を一時的に 168 等に |
-| Gemini が日本語を返す | プロンプト改ざん。`PROMPT_TEMPLATE` を確認 |
+| Gemini が英語を返す | プロンプト改ざん or モデル不調。`PROMPT_TEMPLATE` の「日本語で書きます」指示を確認 |
 
 ---
 
