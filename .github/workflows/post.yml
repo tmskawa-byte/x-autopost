@@ -1,20 +1,8 @@
 name: AutoPost
 
-# 4 スロット方式 (JST):
-#   slot 0: 07:00 JST = 22:00 UTC (前日)
-#   slot 1: 11:30 JST = 02:30 UTC
-#   slot 2: 16:00 JST = 07:00 UTC
-#   slot 3: 22:30 JST = 13:30 UTC
-# 全 4 スロットで cron トリガーするが、Python 側で日付ハッシュにより
-# 4 スロットから 2 スロットを deterministic にサンプルする。
-# 当該スロットが選ばれていなければ即 exit するため、ランナー時間は
-# (スキップ時) 数十秒 / (採用時) ~10 分以内に収まる。
+# cron 投稿は停止 (2026-06-06): @keroro_4649 graduated-access 対応のため
+# 投稿ロジック (auto_post.py 等) は触らず、workflow_dispatch 経由の手動実行のみ残置
 on:
-  schedule:
-    - cron: "0 22 * * *"   # UTC 22:00 = JST 07:00 (翌日)
-    - cron: "30 2 * * *"   # UTC 02:30 = JST 11:30
-    - cron: "0  7 * * *"   # UTC 07:00 = JST 16:00
-    - cron: "30 13 * * *"  # UTC 13:30 = JST 22:30
   workflow_dispatch:
     inputs:
       dry:
